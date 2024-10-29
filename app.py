@@ -4,7 +4,6 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from database.rds_database import rds_database
 from models import Steam_API_Management_Model
 from dataclasses import asdict
-import Const
 # from util import *
 import requests
 import logging
@@ -17,6 +16,8 @@ from dotenv import load_dotenv
 load_dotenv()
 BASEDIR = os.path.abspath(os.path.dirname(__file__))
 DB_NAME = os.getenv("RDS_DB_NAME")
+STEAM_TOP_100_API = os.getenv("STEAM_TOP_100_API")
+STEAM_GAME_DETAIL_API = os.getenv("STEAM_GAME_DETAIL_API")
 cur_database = rds_database(db_name=DB_NAME)
 app = Flask(__name__)
 # Configure logging
@@ -287,7 +288,7 @@ def page_not_found(e):
 def fetch_steam_api_data():
     print("Fetching top 100 games data from Steam API")
     try:
-        response = requests.get(Const.steamTop100API)
+        response = requests.get(STEAM_TOP_100_API)
         if response.status_code == 200:
             data = response.json()
             # print(data)
@@ -302,7 +303,7 @@ def fetch_steam_api_data():
                 ranking += 1
                 # print(ranking)
                 try:
-                    game_detail_response = requests.get(Const.steamGameDetailAPI + str(game))
+                    game_detail_response = requests.get(STEAM_GAME_DETAIL_API + str(game))
                     if game_detail_response.status_code == 200:
                         # insert new game into database
                         game_detail = game_detail_response.json()
