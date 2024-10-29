@@ -1,23 +1,47 @@
 
-from flask import Flask, render_template, Response, send_from_directory, request, jsonify
+from flask import Flask, request, jsonify, url_for
 from apscheduler.schedulers.background import BackgroundScheduler
 from database.rds_database import rds_database
 from models import Steam_API_Management_Model
 from dataclasses import asdict
 import Const
-from util import *
+# from util import *
 import requests
+import logging
+import time
 import os
-import sys
 from dotenv import load_dotenv
+
+
+# Setup
 load_dotenv()
-DB_NAME = os.getenv("RDS_DB_NAME")
-
-
-
 BASEDIR = os.path.abspath(os.path.dirname(__file__))
-app = Flask(__name__)
+DB_NAME = os.getenv("RDS_DB_NAME")
 cur_database = rds_database(db_name=DB_NAME)
+app = Flask(__name__)
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+
+
+# Middleware for logging
+@app.before_request
+def log_request():
+    request.start_time = time.time() # Record the start time
+    request_data = request.get_data() # Get request data if needed
+    app.logger.info(f'Before Request: Method={request.method}, Path={request.path}, Body={request_data.decode()}')
+
+
+@app.after_request
+def log_response(response):
+    duration = time.time() - request.start_time # Calculate how long the request took
+    app.logger.info(f'After Request: Method={request.method}, Path={request.path}, Status={response.status_code}, Duration={duration:.2f} sec')
+    return response
+
+
+# Routes
+@app.route('/')
+def index():
+    return jsonify({"message": "Welcome to Steam API Management"}), 200
 
 
 """
@@ -58,19 +82,34 @@ Example:
 """
 @app.route("/steam_api/game_detail/<int:gameId>", methods=['GET'])
 def request_game_detail_by_id(gameId):
-    game_info = cur_database.query_data('games', columns=['appid', 'name', 'ranking'], conditions=asdict(Steam_API_Management_Model.AppId(appid=gameId)))[0]
-    tag_id_info = cur_database.query_data('tags_of_games', columns=['tag_id'], conditions=asdict(Steam_API_Management_Model.AppId(appid=gameId)))
-    tag_id_info = [tag_id['tag_id'] for tag_id in tag_id_info]
-    tag_name_info = []
-    for tag_id in tag_id_info:
-        tag_name = cur_database.query_data('game_tags', columns=['tag_name'], conditions=asdict(Steam_API_Management_Model.TagId(tag_id=tag_id)))[0]['tag_name']
-        tag_name_info.append(tag_name)
-    game_info['tags'] = tag_name_info
-    return jsonify(game_info)
+    try:
+        game_info = cur_database.query_data('games', columns=['appid', 'name', 'ranking'], conditions=asdict(Steam_API_Management_Model.AppId(appid=gameId)))[0]
+        if not game_info:
+            return jsonify({"message": "Game not found"}), 404
+        tag_id_info = cur_database.query_data('tags_of_games', columns=['tag_id'], conditions=asdict(Steam_API_Management_Model.AppId(appid=gameId)))
+        tag_id_info = [tag_id['tag_id'] for tag_id in tag_id_info]
+        tag_name_info = []
+        for tag_id in tag_id_info:
+            tag_name = cur_database.query_data('game_tags', columns=['tag_name'], conditions=asdict(Steam_API_Management_Model.TagId(tag_id=tag_id)))[0]['tag_name']
+            tag_name_info.append(tag_name)
+        game_info['tags'] = tag_name_info
+
+        # HATEOS
+        response = {
+            "game_detail": game_info,
+            "_links": {
+                "self": url_for('request_game_detail_by_id', gameId=gameId, _external=True),
+                "top_100_game_list_query_example": url_for('request_game_list',page=1, per_page=10, _external=True),
+                "game_list_by_tag_query_example": url_for('request_game_list_by_tag', tagName=tag_name_info[0].replace(" ", "%20"),page=1, per_page=10, _external=True) if tag_name_info else None
+            }
+        }
+        return jsonify(response), 200
+    except Exception as e:
+        return jsonify({"message": "Failed to fetch game detail"}), 500
 
 
 """
-Request game detail by game name
+Request game detail by game name (use %20 to replace space in game name)
 
 Returns: dict of game info
 
@@ -107,22 +146,37 @@ Example:
         }
     }
 """
-# TODO: fix name with space issue
 @app.route("/steam_api/game_detail/<string:gameName>", methods=['GET'])
 def request_game_detail_by_name(gameName):
-    game_info = cur_database.query_data('games', columns=['appid', 'name', 'ranking'], conditions=asdict(Steam_API_Management_Model.GameName(name=gameName)))[0]
-    tag_id_info = cur_database.query_data('tags_of_games', columns=['tag_id'], conditions=asdict(Steam_API_Management_Model.AppId(appid=game_info['appid'])))
-    tag_id_info = [tag_id['tag_id'] for tag_id in tag_id_info]
-    tag_name_info = []
-    for tag_id in tag_id_info:
-        tag_name = cur_database.query_data('game_tags', columns=['tag_name'], conditions=asdict(Steam_API_Management_Model.TagId(tag_id=tag_id)))[0]['tag_name']
-        tag_name_info.append(tag_name)
-    game_info['tags'] = tag_name_info
-    return jsonify(game_info)
+    try:
+        gameName = gameName.replace("%20", " ")
+        game_info = cur_database.query_data('games', columns=['appid', 'name', 'ranking'], conditions=asdict(Steam_API_Management_Model.GameName(name=gameName)))[0]
+        if not game_info:
+            return jsonify({"message": "Game not found"}), 404
+        tag_id_info = cur_database.query_data('tags_of_games', columns=['tag_id'], conditions=asdict(Steam_API_Management_Model.AppId(appid=game_info['appid'])))
+        tag_id_info = [tag_id['tag_id'] for tag_id in tag_id_info]
+        tag_name_info = []
+        for tag_id in tag_id_info:
+            tag_name = cur_database.query_data('game_tags', columns=['tag_name'], conditions=asdict(Steam_API_Management_Model.TagId(tag_id=tag_id)))[0]['tag_name']
+            tag_name_info.append(tag_name)
+        game_info['tags'] = tag_name_info
+
+        # HATEOS
+        response = {
+            "game_detail": game_info,
+            "_links": {
+                "self": url_for('request_game_detail_by_name', gameName=gameName, _external=True),
+                "top_100_game_list_query_example": url_for('request_game_list', page=1, per_page=10, _external=True),
+                "game_list_by_tag_query_example": url_for('request_game_list_by_tag', tagName=tag_name_info[0].replace(" ", "%20"), page=1, per_page=10, _external=True) if tag_name_info else None
+            }
+        }
+        return jsonify(response), 200
+    except Exception as e:
+        return jsonify({"message": "Failed to fetch game detail"}), 500
 
 
 """
-Request game list by tag name
+Request game list by tag name (use %20 to replace space in tag name)
 
 Returns:
     list: list of game id
@@ -136,34 +190,7 @@ Example:
         240,
         320,
         340,
-        400,
-        440,
-        550,
-        620,
-        730,
-        4000,
-        49520,
-        107410,
-        218230,
-        218620,
-        221100,
-        239140,
-        251570,
-        252490,
-        275850,
-        291480,
-        304930,
-        359550,
-        377160,
-        433850,
-        444090,
-        550650,
-        578080,
-        594650,
-        755790,
-        1085660,
-        1091500,
-        1172470,
+        ...
         1174180,
         1238810,
         1240440,
@@ -171,13 +198,36 @@ Example:
         1938090
     ]
     """
-# TODO: fix tag name with space issue
 @app.route('/steam_api/game_list_by_tag/<string:tagName>',methods=['GET'])
 def request_game_list_by_tag(tagName):
-    tag_id = cur_database.query_data('game_tags', columns=['tag_id'], conditions=asdict(Steam_API_Management_Model.TagName(tag_name=tagName)))[0]['tag_id']
-    game_id_info = cur_database.query_data('tags_of_games', columns=['appid'], conditions=asdict(Steam_API_Management_Model.TagId(tag_id=tag_id)))
-    game_id_info = [game_id['appid'] for game_id in game_id_info]
-    return jsonify(game_id_info)
+    try:
+        tagName = tagName.replace("%20", " ")
+        page = int(request.args.get('page', 1))
+        per_page = int(request.args.get('per_page', 10))
+        tag_id = cur_database.query_data('game_tags', columns=['tag_id'], conditions=asdict(Steam_API_Management_Model.TagName(tag_name=tagName)))[0]['tag_id']
+        if not tag_id:
+            return jsonify({"message": "Tag not found"}), 404
+        game_id_info = cur_database.query_data('tags_of_games', columns=['appid'], conditions=asdict(Steam_API_Management_Model.TagId(tag_id=tag_id)))
+        game_id_info = [game_id['appid'] for game_id in game_id_info]
+
+        # pagination
+        start = (page - 1) * per_page
+        end = page * per_page
+        paginated_game_id_info = game_id_info[start:end]
+
+        # HATEOS
+        response = {
+            "game_list_by_tag": paginated_game_id_info,
+            "_links": {
+                "self": url_for('request_game_list_by_tag', tagName=tagName, page=page, per_page=per_page, _external=True),
+                "next": url_for('request_game_list_by_tag', tagName=tagName, page=page + 1, per_page=per_page, _external=True) if end < len(game_id_info) else None,
+                "prev": url_for('request_game_list_by_tag', tagName=tagName, page=page - 1, per_page=per_page, _external=True) if start > 0 else None,
+                "game_detail_query_example": url_for('request_game_detail_by_id', gameId=paginated_game_id_info[0], _external=True) if paginated_game_id_info else None
+            }
+        }
+        return jsonify(response), 200
+    except Exception as e:
+        return jsonify({"message": "Failed to fetch game list by tag"}), 500
 
 
 """
@@ -194,96 +244,7 @@ Example:
         578080,
         440,
         1172470,
-        1623730,
-        1063730,
-        2358720,
-        1938090,
-        271590,
-        550,
-        252490,
-        1599340,
-        304930,
-        553850,
-        236390,
-        1245620,
-        105600,
-        291550,
-        431960,
-        1086940,
-        4000,
-        359550,
-        1085660,
-        340,
-        346110,
-        230410,
-        892970,
-        1091500,
-        945360,
-        218620,
-        901583,
-        238960,
-        413150,
-        242760,
-        1203220,
-        899770,
-        381210,
-        1097150,
-        292030,
-        291480,
-        49520,
-        444090,
-        438100,
-        227300,
-        10,
-        272060,
-        739630,
-        620,
-        990080,
-        252950,
-        1966720,
-        1240440,
-        1517290,
-        70,
-        582010,
-        240,
-        108600,
-        320,
-        386360,
-        1468810,
-        648800,
-        755790,
-        1174180,
-        550650,
-        400,
-        301520,
-        239140,
-        367520,
-        250900,
-        814380,
-        433850,
-        251570,
-        1222670,
-        594650,
-        322330,
-        219990,
-        261550,
-        304050,
-        236850,
-        532210,
-        377160,
-        477160,
-        107410,
-        255710,
-        289070,
-        1811260,
-        218230,
-        1238810,
-        72850,
-        221100,
-        1089350,
-        204360,
-        1326470,
-        394360,
+        ...
         96000,
         632360,
         1046930,
@@ -293,10 +254,35 @@ Example:
 """
 @app.route('/steam_api/game_list',methods=['GET'])
 def request_game_list():
-    game_list = cur_database.query_top_100_game()
-    game_list = [game['appid'] for game in game_list]
-    return jsonify(game_list)
+    try:
+        page = int(request.args.get('page', 1))
+        per_page = int(request.args.get('per_page', 100))
+        game_list = cur_database.query_top_100_game()
+        game_list = [game['appid'] for game in game_list]
 
+        # pagination
+        start = (page - 1) * per_page
+        end = page * per_page
+        paginated_game_list = game_list[start:end]
+
+        # HATEOS
+        response = {
+            "game_list": paginated_game_list,
+            "_links": {
+                "self": url_for('request_game_list', page=page, per_page=per_page, _external=True),
+                "next": url_for('request_game_list', page=page + 1, per_page=per_page, _external=True) if end < len(game_list) else None,
+                "prev": url_for('request_game_list', page=page - 1, per_page=per_page, _external=True) if start > 0 else None,
+                "game_detail_query_example": url_for('request_game_detail_by_id', gameId=paginated_game_list[0], _external=True) if paginated_game_list else None
+            }
+        }
+        return jsonify(response), 200
+    except Exception as e:
+        return jsonify({"message": "Failed to fetch top 100 games"}), 500
+
+
+@app.errorhandler(404)
+def page_not_found(e):
+    return jsonify({"message": "Page not found"}), 404
 
 def fetch_steam_api_data():
     print("Fetching top 100 games data from Steam API")
