@@ -106,6 +106,7 @@ def request_game_detail_by_id(gameId):
         }
         return jsonify(response), 200
     except Exception as e:
+        app.logger.error(f"Failed to fetch game detail: {e}")
         return jsonify({"message": "Failed to fetch game detail"}), 500
 
 
@@ -173,6 +174,7 @@ def request_game_detail_by_name(gameName):
         }
         return jsonify(response), 200
     except Exception as e:
+        app.logger.error(f"Failed to fetch game detail: {e}")
         return jsonify({"message": "Failed to fetch game detail"}), 500
 
 
@@ -228,6 +230,7 @@ def request_game_list_by_tag(tagName):
         }
         return jsonify(response), 200
     except Exception as e:
+        app.logger.error(f"Failed to fetch game list by tag: {e}")
         return jsonify({"message": "Failed to fetch game list by tag"}), 500
 
 
@@ -278,6 +281,7 @@ def request_game_list():
         }
         return jsonify(response), 200
     except Exception as e:
+        app.logger.error(f"Failed to fetch top 100 games: {e}")
         return jsonify({"message": "Failed to fetch top 100 games"}), 500
 
 
@@ -286,22 +290,21 @@ def page_not_found(e):
     return jsonify({"message": "Page not found"}), 404
 
 def fetch_steam_api_data():
-    print("Fetching top 100 games data from Steam API")
+    app.logger.info("Fetching top 100 games data from Steam API")
     try:
         response = requests.get(STEAM_TOP_100_API)
         if response.status_code == 200:
             data = response.json()
-            # print(data)
             # set rank to 101 for all games for upcoming update
             result = cur_database.update_data("games", asdict(Steam_API_Management_Model.Ranking(ranking=101)), {})
             if result != "Success":
-                print("Failed to reset rank", result)
+                app.logger.error("Failed to reset rank", result)
                 return
+            
             # fetch game detail data for each game from Steam API
             ranking = 0
             for game in data:
                 ranking += 1
-                # print(ranking)
                 try:
                     game_detail_response = requests.get(STEAM_GAME_DETAIL_API + str(game))
                     if game_detail_response.status_code == 200:
@@ -309,13 +312,13 @@ def fetch_steam_api_data():
                         game_detail = game_detail_response.json()
                         game_exist = cur_database.check_data_exist("games", asdict(Steam_API_Management_Model.AppId(appid=game_detail['appid'])))
                         if game_exist:
-                            print("game exist. update rank")
+                            app.logger.info("appid:", game_detail['appid'], "game exist. update rank")
                             game_insert_result = cur_database.update_data("games", asdict(Steam_API_Management_Model.Ranking(ranking=ranking)), asdict(Steam_API_Management_Model.AppId(appid=game_detail['appid'])))
                         else:
-                            print("game not exist. insert new game")
+                            app.logger.info("appid:", game_detail['appid'], "game not exist. insert new game")
                             game_insert_result = cur_database.bulk_insert_data("games", [asdict(Steam_API_Management_Model.Game(appid=game_detail['appid'], name=game_detail['name'], ranking=ranking))])          
                         if game_insert_result != "Success":
-                            print("Failed to update rank:", game_insert_result)
+                            app.logger.error("Failed to update rank:", game_insert_result)
                             return
                             
                         # insert new tags into database
@@ -329,7 +332,7 @@ def fetch_steam_api_data():
                         if tags_data:
                             tag_insert_result = cur_database.bulk_insert_data("game_tags", tags_data)
                             if tag_insert_result != "Success":
-                                print("Failed to insert new tags:", tag_insert_result)
+                                app.logger.error("Failed to insert new tags:", tag_insert_result)
                                 return
 
                         # update game-tag relationship
@@ -343,20 +346,19 @@ def fetch_steam_api_data():
                         if game_tag_relationships:
                             game_tag_relationship_insert_result = cur_database.bulk_insert_data("tags_of_games", game_tag_relationships)
                             if game_tag_relationship_insert_result != "Success":
-                                print("Failed to insert game-tag relationship:", game_tag_relationship_insert_result)
+                                app.logger.error("Failed to insert game-tag relationship:", game_tag_relationship_insert_result)
                                 return
+                    else:
+                        app.logger.warning("API Error: Failed to fetch game detail data from Steam API", game_detail_response.status_code)
                 except Exception as e:
-                    print("Failed to fetch game detail data from Steam API")
-                    print(e)
+                    app.logger.error(f"Internal Error: Failed to fetch game detail data from Steam API - {e}")
         else:
-            print("Failed to fetch top 100 games data from Steam API", response.status_code)
+            app.logger.warning("API Error: Failed to fetch top 100 games data from Steam API", response.status_code)
     except Exception as e:
-        print("Failed to fetch top 100 games data from Steam API")
-        print(e)
+        app.logger.error(f"Internal Error: Failed to fetch top 100 games data from Steam API - {e}")
             
 
 if __name__ == '__main__':
-    # TODO is scheduler running?
     scheduler = BackgroundScheduler()
     scheduler.add_job(fetch_steam_api_data, 'interval', weeks=2)
     scheduler.start()

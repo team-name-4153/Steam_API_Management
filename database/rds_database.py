@@ -1,3 +1,35 @@
+"""
+Table Structures:
+
+
+create table games
+(
+    appid int not null primary key,
+    name varchar(255) not null,
+    ranking int null
+);
+
+create table game_tags
+(
+    tag_id int auto_increment primary key,
+    tag_name varchar(255) not null
+);
+
+create table tags_of_games
+(
+    tag_id int not null,
+    appid  int not null,
+    weight float null,
+    primary key (appid, tag_id),
+    constraint game_appid_fk
+        foreign key (appid) references games (appid)
+            on delete cascade,
+    constraint game_tag_id_fk
+        foreign key (tag_id) references game_tags (tag_id)
+            on delete cascade
+);
+"""
+
 import pymysql
 from dotenv import load_dotenv
 import os
