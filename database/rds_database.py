@@ -42,11 +42,11 @@ HOST = os.getenv("RDS_HOST")
 PORT = os.getenv("RDS_PORT")
 USER = os.getenv("RDS_USER")  
 PASSWORD = os.getenv("RDS_PASSWORD")  
-# DB_NAME = os.getenv("RDS_DB_NAME")  
+DB_NAME = os.getenv("RDS_DB_NAME")  
 
 class rds_database:
-    def __init__(self, db_name):
-        self.conn = pymysql.connect(host=HOST, user=USER, passwd=PASSWORD, db=db_name, port=3306)
+    def __init__(self):
+        self.conn = pymysql.connect(host=HOST, user=USER, passwd=PASSWORD, db=DB_NAME, port=int(PORT))
         print("AWS RDS Connection established successfully!")
         self.cursor = self.conn.cursor()
 
@@ -57,10 +57,15 @@ class rds_database:
     # Example usage:
     # self.check_data_exist('users', {'username': 'alice'})
     def check_data_exist(self, table_name, conditions):
+        # Construct the SQL statement
+        condition_clauses = ' AND '.join([f"{key} = %s" for key in conditions.keys()])
+        condition_values = list(conditions.values())
+        sql = f"SELECT * FROM {table_name} WHERE {condition_clauses}"
+
+        # check connection
+        self.conn.ping(reconnect=True)
+        # Executing the query
         try:
-            condition_clauses = ' AND '.join([f"{key} = %s" for key in conditions.keys()])
-            condition_values = list(conditions.values())
-            sql = f"SELECT * FROM {table_name} WHERE {condition_clauses}"
             self.cursor.execute(sql, condition_values)
             result = self.cursor.fetchall()
             if len(result) > 0:
@@ -79,13 +84,13 @@ class rds_database:
         # Extracting column names from the first dictionary (assuming all records are uniform)
         columns = ', '.join(records[0].keys())
         placeholders = ', '.join(['%s'] * len(records[0]))
-
         # Construct the SQL statement
         sql = f"INSERT INTO {table_name} ({columns}) VALUES ({placeholders})"
-
         # Preparing the values to insert
         values = [tuple(record.values()) for record in records]
 
+        # check connection
+        self.conn.ping(reconnect=True)
         # Assuming cursor is a cursor object connected to your database
         # with connection being a database connection
         try:
@@ -120,6 +125,8 @@ class rds_database:
         else:
             sql = f"UPDATE {table_name} SET {set_clause} WHERE {condition_clause}"
 
+        #check connection
+        self.conn.ping(reconnect=True)
         # Executing the update
         try:
             cursor = self.cursor
@@ -152,9 +159,11 @@ class rds_database:
         else:
             sql = f"SELECT {columns_clause} FROM {table_name}"
 
+        # check connection
+        self.conn.ping(reconnect=True)
         # Executing the query
         try:
-            cursor = self.conn.cursor()
+            cursor = self.cursor
             if conditions:
                 cursor.execute(sql, condition_values)
             else:
@@ -174,9 +183,18 @@ class rds_database:
             return []
 
     def query_top_100_game(self):
+        # consturct the SQL statement
         sql = f"SELECT appid FROM games WHERE ranking <= 100 ORDER BY ranking"
-        cursor = self.conn.cursor()
-        cursor.execute(sql)
-        records = cursor.fetchall()
-        columns = [desc[0] for desc in cursor.description]
-        return [dict(zip(columns, record)) for record in records]
+
+        # check connection
+        self.conn.ping(reconnect=True)
+        # Executing the query
+        try:
+            cursor = self.cursor
+            cursor.execute(sql)
+            records = cursor.fetchall()
+            columns = [desc[0] for desc in cursor.description]
+            return [dict(zip(columns, record)) for record in records]
+        except Exception as e:
+            print(f"Error querying top 100 games: {e}")
+            return []

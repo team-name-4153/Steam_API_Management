@@ -18,7 +18,7 @@ BASEDIR = os.path.abspath(os.path.dirname(__file__))
 DB_NAME = os.getenv("RDS_DB_NAME")
 STEAM_TOP_100_API = os.getenv("STEAM_TOP_100_API")
 STEAM_GAME_DETAIL_API = os.getenv("STEAM_GAME_DETAIL_API")
-cur_database = rds_database(db_name=DB_NAME)
+cur_database = rds_database()
 app = Flask(__name__)
 # Configure logging
 logging.basicConfig(level=logging.INFO)
