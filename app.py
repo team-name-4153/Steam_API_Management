@@ -283,6 +283,40 @@ def request_game_list():
     except Exception as e:
         app.logger.error(f"Failed to fetch top 100 games: {e}")
         return jsonify({"message": "Failed to fetch top 100 games"}), 500
+    
+
+"""
+Request all game names
+
+Returns: list of game names
+
+Example:
+    /steam_api/game_name_list
+    Response:
+    [
+        
+    ]
+"""
+@app.route('/steam_api/game_name_list', methods=['GET'])
+def request_game_name_list():
+    try:
+        game_name_list = cur_database.query_data('games', columns=['name'])
+        game_name_list = sorted([game['name'] for game in game_name_list])
+        return jsonify(game_name_list), 200
+    except Exception as e:
+        app.logger.error(f"Failed to fetch game names: {e}")
+        return jsonify({"message": "Failed to fetch game names"}), 500
+    
+
+@app.route('/steam_api/game_tag_list', methods=['GET'])
+def request_game_tag_list():
+    try:
+        tag_list = cur_database.query_data('game_tags', columns=['tag_name'])
+        tag_list = sorted([tag['tag_name'] for tag in tag_list])
+        return jsonify(tag_list), 200
+    except Exception as e:
+        app.logger.error(f"Failed to fetch game tags: {e}")
+        return jsonify({"message": "Failed to fetch game tags"}), 500
 
 
 @app.errorhandler(404)
