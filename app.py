@@ -1,5 +1,6 @@
 
 from flask import Flask, request, jsonify, url_for
+from flask_cors import CORS
 from apscheduler.schedulers.background import BackgroundScheduler
 from database.rds_database import rds_database
 from models import Steam_API_Management_Model
@@ -20,6 +21,7 @@ STEAM_TOP_100_API = os.getenv("STEAM_TOP_100_API")
 STEAM_GAME_DETAIL_API = os.getenv("STEAM_GAME_DETAIL_API")
 cur_database = rds_database()
 app = Flask(__name__)
+CORS(app) # Enable CORS (allow requests from other domains)
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 
